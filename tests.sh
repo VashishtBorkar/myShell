@@ -1,1 +1,0 @@
-echo "Test Case 1: Simple command"

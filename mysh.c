@@ -37,19 +37,16 @@ Node* createNode(char* word) {
 bool matchesWildcard(const char* fileName, const char* pattern) {
     char* star = strchr(pattern, '*');
     if (!star) {
-        return strcmp(fileName, pattern) == 0;  // Exact match
+        return strcmp(fileName, pattern) == 0;
     }
 
-    // Split into prefix and suffix
     int prefixLen = star - pattern;
     const char* suffix = star + 1;
 
-    // Match prefix
     if (strncmp(fileName, pattern, prefixLen) != 0) {
         return false;
     }
 
-    // Match suffix
     int fileNameLen = strlen(fileName);
     int suffixLen = strlen(suffix);
     if (fileNameLen < prefixLen + suffixLen) {
@@ -61,7 +58,7 @@ bool matchesWildcard(const char* fileName, const char* pattern) {
 Node* expandWildcard(const char* token) {
     char* star = strchr(token, '*');
     if (!star) {
-        return createNode((char*)token);  // No wildcard, return original
+        return createNode((char*)token);  // No wildcard return original
     }
 
     // Separate directory and pattern
@@ -561,7 +558,7 @@ void executeCommand(Node* head) {
     } else if (pid > 0) {  // Parent process
         int status;
         waitpid(pid, &status, 0);  // Wait for child process
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+        if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
             fprintf(stderr, "Command exited with code %d\n", WEXITSTATUS(status));
         }
     } else {
@@ -583,11 +580,12 @@ void handleCommands(Node* head) {
     if (!head) return;
 
     char* command = head->word;
+    int listSize = getListSize(head);
 
     // Check if the command is built-in
     if (strcmp(command, "cd") == 0) {
-        if (getListSize(head) != 2) {
-            fprintf(stderr, "cd: only one file name as argument.\n");
+        if (listSize != 2) {
+            fprintf(stderr, "cd: Usage: cd <directory>.\n");
         } else {
             Node* argNode = head->next;
             if (chdir(argNode->word) != 0) {
@@ -602,24 +600,81 @@ void handleCommands(Node* head) {
             perror("pwd");
         }
     } else if (strcmp(command, "which") == 0) {
-        char* path = findExecutablePath(command);
-        if (path != NULL) {
-            printf("%s\n", path);
-        }
+        if (listSize == 2) {
+            char* path = findExecutablePath(head->next->word);
+            if (path != NULL) {
+                printf("%s\n", path);
+            }
+        } 
 
     } else if (strcmp(command, "exit") == 0) {
-        Node* ptr = head->next;
-        while (ptr != NULL) {
-            printf("%s ", ptr->word);
-            ptr = ptr->next;
-        }
-        printf("\n");
+        if (listSize > 1) {
+            Node* ptr = head->next;
+            while (ptr != NULL) {
+                printf("%s ", ptr->word);
+                ptr = ptr->next;
+            }
+            printf("\n");
+        } 
+        
         if (interactive) {
             printf("Exiting my shell.\n");
         }
         exit(0);
     } else {
         executeCommand(head);
+    }
+    
+    freeTokenList(head);
+}
+
+void handleCommandsNoFork(Node* head) {
+    if (!head) return;
+
+    char* command = head->word;
+    int listSize = getListSize(head);
+
+    // Check if the command is built-in
+    if (strcmp(command, "cd") == 0) {
+        if (listSize != 2) {
+            fprintf(stderr, "cd: Usage: cd <directory>.\n");
+        } else {
+            Node* argNode = head->next;
+            if (chdir(argNode->word) != 0) {
+                perror("cd");
+            }
+        }
+    } else if (strcmp(command, "pwd") == 0) {
+        char cwd[BUFFER_SIZE];
+        if (getcwd(cwd, sizeof(cwd)) != NULL) {
+            printf("%s\n", cwd);
+        } else {
+            perror("pwd");
+        }
+    } else if (strcmp(command, "which") == 0) {
+        if (listSize == 2) {
+            char* path = findExecutablePath(head->next->word);
+            if (path != NULL) {
+                printf("%s\n", path);
+            }
+        } 
+
+    } else if (strcmp(command, "exit") == 0) {
+        if (listSize > 1) {
+            Node* ptr = head->next;
+            while (ptr != NULL) {
+                printf("%s ", ptr->word);
+                ptr = ptr->next;
+            }
+            printf("\n");
+        } 
+        
+        if (interactive) {
+            printf("Exiting my shell.\n");
+        }
+        exit(0);
+    } else {
+        executeCommandNoFork(head);
     }
     
     freeTokenList(head);
@@ -638,7 +693,7 @@ void executePipe(Node* firstCommand, Node* secondCommand) {
         dup2(pipefd[1], STDOUT_FILENO);  // Redirect stdout to pipe write end
         close(pipefd[1]);           // Close pipe write end after duplication
 
-        executeCommandNoFork(firstCommand);  // Execute the first command
+        handleCommandsNoFork(firstCommand);  // Execute the first command
         exit(1);  // Should not reach here if execv succeeds
     }
 
@@ -648,7 +703,7 @@ void executePipe(Node* firstCommand, Node* secondCommand) {
         dup2(pipefd[0], STDIN_FILENO);  // Redirect stdin to pipe read end
         close(pipefd[0]);           // Close pipe read end after duplication
 
-        executeCommandNoFork(secondCommand);  // Execute the second command
+        handleCommandsNoFork(secondCommand);  // Execute the second command
         exit(1);  // Should not reach here if execv succeeds
     }
 
